@@ -1,0 +1,100 @@
+---
+title: "nc_election_analysis"
+output: word_document
+date: "2025-11-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+library(dplyr)
+library(rio)
+library(tidyr)
+library(car)
+
+import("nc_county_demographics.csv")->countydemographics
+
+import("results_pct_20241105.txt")->results
+
+pres_results <- results %>%
+  filter(`Contest Name` == "US PRESIDENT")
+  
+  
+county_results <- pres_results %>%
+  group_by(County, `Choice`) %>%           # candidate column
+  summarise(
+    total_votes = sum(`Total Votes`, na.rm = TRUE),    # votes column
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = `Choice`,
+    values_from = total_votes,
+    values_fill = 0                             # fill missing with 0
+  )
+  
+  
+numeric_cols <- names(county_results)[sapply(county_results, is.numeric)]
+numeric_cols
+
+candidate_cols <- c(
+  "Chase Oliver",
+  "Claudia De la Cruz (Write-In)",
+  "Cornel West",
+  "Donald J. Trump",
+  "Jill Stein",
+  "Kamala D. Harris",
+  "Randall Terry",
+  "Shiva Ayyadurai (Write-In)",
+  "Write-In (Miscellaneous)"
+)
+
+county_results <- county_results %>%
+  mutate(
+    # 1) total votes across candidate columns
+    total_votes = rowSums(across(all_of(candidate_cols))),
+    
+    # 2) percent each candidate got (0–1 scale)
+    across(
+      all_of(candidate_cols),
+      ~ .x / total_votes,
+      .names = "{.col}_pct"
+    )
+  )
+  
+  county_results_demographics <- county_results %>%
+  left_join(countydemographics, by = c("County" = "county"))
+  
+county_results_demographics <- county_results_demographics %>%
+  mutate(total = as.numeric(gsub(",", "", total)))
+
+
+county_results_demographics <- county_results_demographics %>%
+  mutate(
+    turnout_percentage = total_votes / total
+  )
+  
+
+lm (`Donald J. Trump_pct` ~ percent_republican + turnout_percentage, data=county_results_demographics)  -> regmodel
+
+avPlots(regmodel)
